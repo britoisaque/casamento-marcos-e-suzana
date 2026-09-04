@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    // Inclua os e-mails permitidos e/ou defina a custom claim admin no Firebase Admin SDK.
+    function admin() {
+      return signedIn() && (request.auth.token.admin == true || request.auth.token.email in ["seu-email@exemplo.com"]);
+    }
+
+    match /guests/{guestId} {
+      allow read: if true;
+      allow create, delete: if admin();
+      // O convidado só atualiza a confirmação. O administrador pode editar tudo.
+      allow update: if admin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+        request.resource.data.status in ['pending', 'confirmed', 'absent']
+      );
+    }
+    match /gifts/{giftId} {
+      allow read: if true;
+      allow create, delete: if admin();
+      allow update: if admin() || (
+        resource.data.available == true && request.resource.data.available == false &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['available', 'reservedBy', 'reservedAt']) &&
+        request.resource.data.reservedBy.name is string && request.resource.data.reservedBy.phone is string
+      );
+    }
+  }
+}
