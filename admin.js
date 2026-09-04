@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, doc, getDoc, getDocs, updateDoc, dele
 import { firebaseConfig, adminEmails } from "./firebase-config.js";
 
 const $ = selector => document.querySelector(selector);
-const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "COLE_AQUI";
+const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "AIzaSyCjhvPsc2fRh7XSgptFqZ16FtzZP7bn8NQ";
 let app, auth, db, guests = [], gifts = [], currentUser;
 if (configured) { app = initializeApp(firebaseConfig); auth = getAuth(app); db = getFirestore(app); }
 const statusLabel = status => ({ pending: "Aguardando", confirmed: "Confirmado", absent: "Ausente" })[status] || "Aguardando";
@@ -33,12 +33,31 @@ function renderGuests() {
   $("#guest-table").innerHTML = rows.length ? rows.map(g => `<tr><td>${escapeHtml(g.name)}</td><td>${escapeHtml(g.phone || "—")}</td><td>${escapeHtml(g.category || "Individual")}<br><small>${escapeHtml(g.inviteId || "—")}</small></td><td><span class="status ${g.status || "pending"}">${statusLabel(g.status)}</span></td><td><div class="row-actions"><button data-edit-guest="${g.id}">Editar</button><button data-delete-guest="${g.id}">Excluir</button></div></td></tr>`).join("") : '<tr><td colspan="5" class="loading">Nenhum convidado encontrado.</td></tr>';
   document.querySelectorAll("[data-edit-guest]").forEach(b => b.addEventListener("click", () => editGuest(b.dataset.editGuest))); document.querySelectorAll("[data-delete-guest]").forEach(b => b.addEventListener("click", () => removeGuest(b.dataset.deleteGuest)));
 }
-function resetGuestForm() { $("#guest-form").reset(); $("#guest-id").value = ""; $("#guest-form-title").textContent = "Adicionar convidado"; $("#cancel-guest-edit").hidden = true; $("#guest-form-feedback").innerHTML = ""; }
-function editGuest(id) { const g = guests.find(item => item.id === id); if (!g) return; $("#guest-id").value = id; $("#guest-name").value = g.name || ""; $("#guest-phone").value = g.phone || ""; $("#guest-category").value = g.category || "Individual"; $("#guest-invite-id").value = g.inviteId || ""; $("#guest-status").value = g.status || "pending"; $("#guest-form-title").textContent = "Editar convidado"; $("#cancel-guest-edit").hidden = false; $("#guest-form").scrollIntoView({ behavior: "smooth", block: "center" }); }
+function familyMode() { return $("#guest-category").value === "Família"; }
+function addFamilyMember(member = {}) {
+  const row = document.createElement("div"); row.className = "family-member-row";
+  row.innerHTML = `<label>Nome<input class="family-member-name" required maxlength="120" value="${escapeHtml(member.name || "")}" placeholder="Nome da pessoa" /></label><label>Telefone<input class="family-member-phone" required maxlength="30" value="${escapeHtml(member.phone || "")}" placeholder="(00) 00000-0000" /></label><button class="remove-member" type="button">Remover</button>`;
+  row.querySelector(".remove-member").addEventListener("click", () => row.remove()); $("#family-member-list").append(row);
+}
+function updateFamilyForm() { const active = familyMode(); $("#family-members").hidden = !active; if (!active) $("#family-member-list").innerHTML = ""; }
+function familyEntries() { return Array.from(document.querySelectorAll(".family-member-row")).map(row => ({ name: row.querySelector(".family-member-name").value.trim(), phone: row.querySelector(".family-member-phone").value.trim() })); }
+function resetGuestForm() { $("#guest-form").reset(); $("#guest-id").value = ""; $("#family-member-list").innerHTML = ""; updateFamilyForm(); $("#guest-form-title").textContent = "Adicionar convidado"; $("#cancel-guest-edit").hidden = true; $("#guest-form-feedback").innerHTML = ""; }
+function editGuest(id) {
+  const g = guests.find(item => item.id === id); if (!g) return; $("#guest-id").value = id; $("#guest-name").value = g.name || ""; $("#guest-phone").value = g.phone || ""; $("#guest-category").value = g.category || "Individual"; $("#guest-invite-id").value = g.inviteId || ""; $("#guest-status").value = g.status || "pending"; $("#family-member-list").innerHTML = ""; updateFamilyForm();
+  if (g.category === "Família" && g.inviteId) { const relatives = guests.filter(member => member.id !== g.id && member.inviteId === g.inviteId); relatives.forEach(addFamilyMember); $("#guest-form-title").textContent = `Editar família (${relatives.length + 1} pessoas)`; } else $("#guest-form-title").textContent = "Editar convidado";
+  $("#cancel-guest-edit").hidden = false; $("#guest-form").scrollIntoView({ behavior: "smooth", block: "center" });
+}
 async function saveGuest(event) {
-  event.preventDefault(); const id = $("#guest-id").value; const name = $("#guest-name").value.trim(), phone = $("#guest-phone").value.trim(), category = $("#guest-category").value; const inviteId = $("#guest-invite-id").value.trim() || (category === "Individual" ? undefined : slug(name)); const data = { name, phone, category, status: $("#guest-status").value, searchName: normalize(name), ...(inviteId ? { inviteId } : {}), updatedAt: serverTimestamp() }; const button = event.currentTarget.querySelector("button[type=submit]"); button.disabled = true;
-  try { if (id) await updateDoc(doc(db, "guests", id), data); else await addDoc(collection(db, "guests"), { ...data, createdAt: serverTimestamp() }); feedback($("#guest-form-feedback"), id ? "Convidado atualizado." : "Convidado adicionado.", "success"); await loadGuests(); setTimeout(resetGuestForm, 500); }
-  catch (error) { console.error(error); feedback($("#guest-form-feedback"), "Não foi possível salvar o convidado."); } finally { button.disabled = false; }
+  event.preventDefault(); const id = $("#guest-id").value; const name = $("#guest-name").value.trim(), phone = $("#guest-phone").value.trim(), category = $("#guest-category").value; const inviteId = $("#guest-invite-id").value.trim() || (category === "Individual" ? undefined : slug(name)); const status = $("#guest-status").value; const button = event.currentTarget.querySelector("button[type=submit]"); button.disabled = true;
+  try {
+    if (category === "Família") {
+      const members = [{ name, phone }, ...familyEntries()]; if (members.some(member => !member.name || !member.phone)) throw new Error("Preencha nome e telefone de todas as pessoas da família.");
+      const current = guests.find(guest => guest.id === id); const existing = current ? [current, ...(current.inviteId ? guests.filter(guest => guest.id !== id && guest.inviteId === current.inviteId) : [])] : [];
+      const batch = writeBatch(db); members.forEach((member, index) => { const data = { name: member.name, phone: member.phone, category, inviteId, searchName: normalize(member.name), status: index === 0 ? status : (existing[index]?.status || "pending"), updatedAt: serverTimestamp() }; if (existing[index]) batch.update(doc(db, "guests", existing[index].id), data); else batch.set(doc(collection(db, "guests")), { ...data, createdAt: serverTimestamp() }); }); existing.slice(members.length).forEach(member => batch.delete(doc(db, "guests", member.id))); await batch.commit();
+      feedback($("#guest-form-feedback"), `${members.length} pessoa(s) salvas no convite familiar.`, "success");
+    } else { const data = { name, phone, category, status, searchName: normalize(name), ...(inviteId ? { inviteId } : {}), updatedAt: serverTimestamp() }; if (id) await updateDoc(doc(db, "guests", id), data); else await addDoc(collection(db, "guests"), { ...data, createdAt: serverTimestamp() }); feedback($("#guest-form-feedback"), id ? "Convidado atualizado." : "Convidado adicionado.", "success"); }
+    await loadGuests(); setTimeout(resetGuestForm, 500);
+  } catch (error) { console.error(error); feedback($("#guest-form-feedback"), error.message || "Não foi possível salvar o convidado."); } finally { button.disabled = false; }
 }
 async function removeGuest(id) { const guest = guests.find(g => g.id === id); if (!guest || !confirm(`Excluir ${guest.name}? Esta ação não pode ser desfeita.`)) return; try { await deleteDoc(doc(db, "guests", id)); await loadGuests(); } catch (error) { alert("Não foi possível excluir o convidado."); } }
 
@@ -58,7 +77,7 @@ async function importGifts(file) { const target = $("#gift-import-feedback"); if
 
 function setupEvents() { $("#login-form").addEventListener("submit", async e => { e.preventDefault(); if (!configured) return feedback($("#login-feedback"), "Configure o Firebase no arquivo firebase-config.js antes de entrar."); const button = e.currentTarget.querySelector("button"); button.disabled = true; try { await signInWithEmailAndPassword(auth, $("#login-email").value.trim(), $("#login-password").value); } catch (error) { feedback($("#login-feedback"), "Não foi possível entrar. Verifique e-mail e senha."); } finally { button.disabled = false; } });
   $("#logout").addEventListener("click", () => signOut(auth)); document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => { document.querySelectorAll(".tab").forEach(t => { t.classList.toggle("active", t === button); t.setAttribute("aria-selected", t === button); }); $("#guests-panel").hidden = button.dataset.tab !== "guests"; $("#gifts-panel").hidden = button.dataset.tab !== "gifts"; }));
-  $("#guest-form").addEventListener("submit", saveGuest); $("#cancel-guest-edit").addEventListener("click", resetGuestForm); $("#guest-filter").addEventListener("input", renderGuests); $("#refresh-guests").addEventListener("click", loadGuests); $("#guest-import").addEventListener("change", e => importGuests(e.target.files[0]));
+  $("#guest-form").addEventListener("submit", saveGuest); $("#guest-category").addEventListener("change", updateFamilyForm); $("#add-family-member").addEventListener("click", () => addFamilyMember()); $("#cancel-guest-edit").addEventListener("click", resetGuestForm); $("#guest-filter").addEventListener("input", renderGuests); $("#refresh-guests").addEventListener("click", loadGuests); $("#guest-import").addEventListener("change", e => importGuests(e.target.files[0]));
   $("#gift-form-admin").addEventListener("submit", saveGift); $("#cancel-gift-edit").addEventListener("click", resetGiftForm); $("#gift-filter").addEventListener("input", renderGifts); $("#refresh-gifts").addEventListener("click", loadGifts); $("#gift-import").addEventListener("change", e => importGifts(e.target.files[0]));
 }
 setupEvents();
