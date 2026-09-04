@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, doc, getDoc, getDocs, updateDoc, dele
 import { firebaseConfig, adminEmails } from "./firebase-config.js";
 
 const $ = selector => document.querySelector(selector);
-const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "AIzaSyCjhvPsc2fRh7XSgptFqZ16FtzZP7bn8NQ";
+const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "COLE_AQUI";
 let app, auth, db, guests = [], gifts = [], currentUser;
 if (configured) { app = initializeApp(firebaseConfig); auth = getAuth(app); db = getFirestore(app); }
 const statusLabel = status => ({ pending: "Aguardando", confirmed: "Confirmado", absent: "Ausente" })[status] || "Aguardando";
