@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/fireba
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, updateDoc, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
-const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "AIzaSyCjhvPsc2fRh7XSgptFqZ16FtzZP7bn8NQ";
+const configured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "COLE_AQUI";
 const db = configured ? getFirestore(initializeApp(firebaseConfig)) : null;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (text = "") => String(text).replace(/[&<>'"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#039;", '"':"&quot;" }[c]));
