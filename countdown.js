@@ -1,6 +1,6 @@
 (() => {
-  // Data e horário oficiais do casamento: 28/11/2026, às 18h (horário de Brasília).
-  const weddingDate = new Date("2026-11-28T18:00:00-03:00").getTime();
+  // Data e horário oficiais do casamento: 28/11/2026, às 17h30 (horário de Brasília).
+const weddingDate = new Date("2026-11-28T17:30:00-03:00").getTime();
   const units = [
     ["days", 24 * 60 * 60 * 1000, 3],
     ["hours", 60 * 60 * 1000, 2],
