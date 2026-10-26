@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import { getFirestore, collection, addDoc, doc, getDoc, getDocs, updateDoc, deleteDoc, query, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { getFirestore, collection, addDoc, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, writeBatch, Timestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { firebaseConfig, adminEmails } from "./firebase-config.js";
 
 const $ = selector => document.querySelector(selector);
@@ -21,8 +21,38 @@ function showLogin(message) { $("#dashboard-view").hidden = true; $("#login-view
 async function showDashboard(user) {
   if (!await isAdmin(user)) { await signOut(auth); showLogin("Esta conta não está autorizada a acessar o painel."); return; }
   currentUser = user; $("#login-view").hidden = true; $("#dashboard-view").hidden = false; $("#admin-email").textContent = user.email; $("#admin-name").textContent = user.displayName?.split(" ")[0] || user.email.split("@")[0];
-  await Promise.all([loadGuests(), loadGifts()]);
+  await Promise.all([loadGuests(), loadGifts(), loadRsvpSettings()]);
 }
+// ===== Prazo da confirmação de presença =====
+const DEFAULT_RSVP_DEADLINE = new Date("2026-11-08T23:59:59-03:00");
+let rsvpDeadline = DEFAULT_RSVP_DEADLINE, rsvpDeadlineIsCustom = false;
+const brDate = date => date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+const inputDate = date => date.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+function renderRsvpStatus() {
+  const closed = Date.now() > rsvpDeadline.getTime(); const box = $("#rsvp-deadline-status");
+  box.innerHTML = closed
+    ? `<span class="status absent">Lista ENCERRADA</span> Encerrou em <strong>${brDate(rsvpDeadline)}</strong>. Ninguém consegue confirmar presença pelo site.`
+    : `<span class="status confirmed">Lista ABERTA</span> Fecha automaticamente no fim do dia <strong>${brDate(rsvpDeadline)}</strong>${rsvpDeadlineIsCustom ? "" : " (prazo padrão)"}.`;
+  $("#rsvp-deadline-date").value = inputDate(rsvpDeadline);
+}
+async function loadRsvpSettings() {
+  try {
+    const snap = await getDoc(doc(db, "settings", "rsvp")); const value = snap.exists() ? snap.data().deadline : null;
+    if (value && typeof value.toDate === "function") { rsvpDeadline = value.toDate(); rsvpDeadlineIsCustom = true; }
+  } catch (error) { console.error(error); }
+  renderRsvpStatus();
+}
+async function saveRsvpDeadline(event) {
+  event.preventDefault(); const target = $("#rsvp-deadline-feedback"), value = $("#rsvp-deadline-date").value; const button = event.currentTarget.querySelector("button[type=submit]");
+  if (!value) return feedback(target, "Escolha uma data.");
+  const deadline = new Date(`${value}T23:59:59-03:00`); if (Number.isNaN(deadline.getTime())) return feedback(target, "Data inválida.");
+  button.disabled = true;
+  try { await setDoc(doc(db, "settings", "rsvp"), { deadline: Timestamp.fromDate(deadline), updatedAt: serverTimestamp() }, { merge: true }); rsvpDeadline = deadline; rsvpDeadlineIsCustom = true; renderRsvpStatus(); feedback(target, `Prazo salvo: a confirmação fica aberta até o fim do dia ${brDate(deadline)}.`, "success"); }
+  catch (error) { console.error(error); feedback(target, "Não foi possível salvar o prazo. Confira se as regras do Firebase foram atualizadas."); }
+  finally { button.disabled = false; }
+}
+$("#rsvp-deadline-form").addEventListener("submit", saveRsvpDeadline);
+
 async function loadGuests() {
   try { const snap = await getDocs(query(collection(db, "guests"), orderBy("name"))); guests = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderGuests(); }
   catch (error) { console.error(error); $("#guest-table").innerHTML = '<tr><td colspan="4" class="error">Não foi possível carregar convidados.</td></tr>'; }
