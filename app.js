@@ -13,6 +13,7 @@ function closeDialog(dialog) { dialog.close(); }
 
 async function searchGuests() {
   const term = $("#guest-search").value.trim(); const results = $("#guest-results");
+  await loadRsvpDeadline(); if (rsvpClosed()) return lockRsvp();
   if (term.length < 2) return showFeedback(results, "Digite ao menos 2 letras para buscar.");
   if (!db) return showFeedback(results, "O site ainda precisa ser conectado ao Firebase. Veja o arquivo README.");
   results.innerHTML = '<div class="loading">Buscando seu convite…</div>';
@@ -24,6 +25,27 @@ async function searchGuests() {
     results.innerHTML = guests.docs.map(d => `<button class="guest-result" data-guest-id="${d.id}"><span>${escapeHtml(d.data().name)}</span><small>${d.data().category || "Individual"} · ${statusText(d.data().status)}</small><b>Ver convite →</b></button>`).join("");
     results.querySelectorAll("[data-guest-id]").forEach(button => button.addEventListener("click", () => openInvite(button.dataset.guestId)));
   } catch (error) { console.error(error); showFeedback(results, "Não foi possível buscar agora. Verifique a conexão e tente novamente."); }
+}
+// ===== Prazo da confirmação de presença (a lista de presentes NÃO é afetada) =====
+const DEFAULT_RSVP_DEADLINE = new Date("2026-11-08T23:59:59-03:00"); // usado se o admin ainda não definiu outro prazo
+const RSVP_CLOSED_MESSAGE = "O tempo limite de confirmação chegou. Não conseguiu confirmar a sua? Entre em contato com o noivo ou a noiva para confirmar sua presença!";
+let rsvpDeadline = DEFAULT_RSVP_DEADLINE;
+async function loadRsvpDeadline() {
+  if (!db) return;
+  try {
+    const snap = await getDoc(doc(db, "settings", "rsvp"));
+    const value = snap.exists() ? snap.data().deadline : null;
+    if (value && typeof value.toDate === "function") rsvpDeadline = value.toDate();
+  } catch (error) { console.warn("Usando o prazo padrão da confirmação.", error); }
+}
+function rsvpClosed() { return Date.now() > rsvpDeadline.getTime(); }
+function lockRsvp() {
+  $("#guest-search").disabled = true; $("#search-guests").disabled = true;
+  showFeedback($("#guest-results"), RSVP_CLOSED_MESSAGE, "notice");
+}
+function applyRsvpState() {
+  if (rsvpClosed()) return lockRsvp();
+  $("#guest-search").disabled = false; $("#search-guests").disabled = false;
 }
 function statusText(status) { return ({ pending: "Aguardando confirmação", confirmed: "Confirmado", absent: "Ausente" })[status] || "Aguardando confirmação"; }
 
@@ -40,8 +62,8 @@ async function openInvite(guestId) {
 }
 async function saveRsvp(event, members) {
   event.preventDefault(); const form = event.currentTarget, button = form.querySelector("button"), feedback = $("#rsvp-save-feedback"); button.disabled = true; button.textContent = "Salvando…";
-  try { await Promise.all(members.map(member => updateDoc(doc(db, "guests", member.id), { status: new FormData(form).get(member.id), updatedAt: serverTimestamp() }))); showFeedback(feedback, "Presença atualizada com carinho. Obrigado!", "success"); $("#guest-results").innerHTML = ""; }
-  catch (error) { console.error(error); showFeedback(feedback, "Não foi possível salvar. Tente novamente."); }
+  try { await loadRsvpDeadline(); if (rsvpClosed()) { closeDialog($("#rsvp-dialog")); lockRsvp(); return; } await Promise.all(members.map(member => updateDoc(doc(db, "guests", member.id), { status: new FormData(form).get(member.id), updatedAt: serverTimestamp() }))); showFeedback(feedback, "Presença atualizada com carinho. Obrigado!", "success"); $("#guest-results").innerHTML = ""; }
+  catch (error) { console.error(error); if (error.code === "permission-denied") { closeDialog($("#rsvp-dialog")); lockRsvp(); } else showFeedback(feedback, "Não foi possível salvar. Tente novamente."); }
   finally { button.disabled = false; button.innerHTML = "Salvar confirmação <span>→</span>"; }
 }
 
@@ -71,4 +93,5 @@ document.querySelectorAll("[data-close-dialog]").forEach(b => b.addEventListener
 document.querySelectorAll("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) closeDialog(d); }));
 $(".menu-button").addEventListener("click", () => { const b = $(".menu-button"); b.classList.toggle("open"); $(".main-nav").classList.toggle("open"); b.setAttribute("aria-expanded", b.classList.contains("open")); });
 document.querySelectorAll(".main-nav a").forEach(a => a.addEventListener("click", () => { $(".menu-button").classList.remove("open"); $(".main-nav").classList.remove("open"); }));
+loadRsvpDeadline().then(applyRsvpState);
 loadGifts();
